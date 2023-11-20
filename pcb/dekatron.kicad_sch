@@ -2325,6 +2325,10 @@
     (uuid fc37fc03-bc5b-408f-ba0c-c788f79b64d7)
   )
 
+  (text "D8 green\nD9 red" (at 25.4 229.235 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid 04c8f638-fbec-439e-8b7f-101ab0c5401a)
+  )
   (text "Is 12V needed, or can we use 5V?\nNo, 5V doesn't work in original."
     (at 29.21 25.4 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
