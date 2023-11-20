@@ -1,3 +1,14 @@
+//This code handles the loading/saving of configuration values via the web interface.
+/*
+ * ----------------------------------------------------------------------------
+ * "THE BEER-WARE LICENSE" (Revision 42):
+ * Jeroen Domburg <jeroen@spritesmods.com> wrote this file. As long as you retain 
+ * this notice you can do whatever you want with this stuff. If we meet some day, 
+ * and you think this stuff is worth it, you can buy me a beer in return. 
+ * ----------------------------------------------------------------------------
+ */
+
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -32,8 +43,7 @@ static const char* defaults[]={"10.0.0.1", "public", ".1.3.6.1.2.1.2.2.1.10.1", 
 
 static nvs_handle_t nvs;
 
-
-//default to un-negotiated USB voltages
+//default USB status display to un-negotiated USB voltages
 static int usbpd_mv=5000;
 static int usbpd_ma=100;
 
@@ -48,9 +58,11 @@ static esp_err_t webconfig_get_handler(httpd_req_t *req) {
 		httpd_resp_set_type(req, "text/html");
 		httpd_resp_send(req, root_html_start, root_html_end-root_html_start);
 	} else if(strcmp(req->uri, "/getfields") == 0) {
+		//The webpage will get the values for all its fields from here.
 		cJSON *root=cJSON_CreateObject();
 		cJSON *vars=cJSON_AddArrayToObject(root, "vars");
 		int i=0;
+		//Get the fields from NVS and add to JSON.
 		while (fields[i]!=NULL) {
 			char buf[256];
 			size_t length=sizeof(buf);
@@ -64,10 +76,12 @@ static esp_err_t webconfig_get_handler(httpd_req_t *req) {
 			cJSON_AddItemToArray(vars, var);
 			i++;
 		}
+		//Also add some debug values.
 		cJSON_AddNumberToObject(root, "usbpd_mv", usbpd_mv);
 		cJSON_AddNumberToObject(root, "usbpd_ma", usbpd_ma);
 		cJSON_AddNumberToObject(root, "deka_pwm", deka_get_pwm());
 		cJSON_AddNumberToObject(root, "deka_posdet", deka_get_posdet_ct());
+		//Return the JSON.
 		httpd_resp_set_status(req, "200 OK");
 		httpd_resp_set_type(req, "text/json");
 		const char *txt=cJSON_Print(root);
@@ -88,9 +102,11 @@ static void reset_cb(void *arg) {
 
 static esp_err_t webconfig_post_handler(httpd_req_t *req) {
 	if(strcmp(req->uri, "/setfields") == 0) {
+		//The webpage posts here to set the configuration values.
 		char *buf=malloc(req->content_len);
 		int p=0;
 		while (p!=req->content_len) {
+			//Receive the POST data.
 			int ret=httpd_req_recv(req, buf+p, req->content_len-p);
 			if (ret>=0) {
 				p+=ret;
@@ -102,6 +118,7 @@ static esp_err_t webconfig_post_handler(httpd_req_t *req) {
 				return ESP_OK;
 			}
 		}
+		//Okay, we got the JSON data. Get the values from there and save to NVS.
 		cJSON *root = cJSON_Parse(buf);
 		if (root) {
 			nvs_handle_t lnvs;
@@ -116,16 +133,16 @@ static esp_err_t webconfig_post_handler(httpd_req_t *req) {
 				i++;
 			}
 			nvs_close(lnvs);
-			//Queue restart
+			//Queue a device restart.
 			const esp_timer_create_args_t timerargs={
 				.callback=reset_cb,
 				.name="resettimer"
 			};
+			ESP_LOGE(TAG, "Setting fields succeeded. Scheduling reboot.");
 			esp_timer_handle_t resettimer;
 			esp_timer_create(&timerargs, &resettimer);
 			esp_timer_start_once(resettimer, 1*1000*1000UL);
 		}
-		ESP_LOGE(TAG, "Setting fields succeeded. Scheduling reboot.");
 		httpd_resp_set_status(req, "200 OK");
 		httpd_resp_set_type(req, "text/plain");
 		httpd_resp_send(req, "OK!", 3);
@@ -171,7 +188,6 @@ void webconfig_start() {
 	http_app_set_handler_hook(HTTP_POST, &webconfig_post_handler);
 
 	ESP_LOGI(TAG,"Webconfig started.");
-
 }
 
 

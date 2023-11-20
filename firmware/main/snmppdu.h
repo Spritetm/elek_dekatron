@@ -1,5 +1,7 @@
 #pragma once
 
+//This is old code. I should have documented all this.
+
 #define PRIM_INT 0x02
 #define PRIM_OCTSTR 0x04
 #define PRIM_NULL 0x05

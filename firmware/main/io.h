@@ -1,3 +1,5 @@
+//These are the GPIOs used on the accompanying PCB. Change this if your design uses
+//different GPIOs.
 #define IO_BOOST 20
 #define IO_G1 7
 #define IO_G2 8
@@ -7,7 +9,11 @@
 #define IO_LEDR 0
 #define IO_LEDG 1
 
+void io_init();
+int io_btn_pressed();
 
+
+//LED blinking interfcae
 #define LED_RED 0
 #define LED_GREEN 1
 
@@ -17,5 +23,3 @@
 #define BLINK_ON 3
 
 void io_led_blink_set(int led, int blink);
-void io_init();
-int io_btn_pressed();

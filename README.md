@@ -37,6 +37,12 @@ will try to show its best impression of the IP address it got; if you have issue
 decyphering this, you can try either connecting to the serial port to see the IP it 
 got or checking the DHCP lease table on your router.
 
+The Dekatron will remember the WiFi network and password on subsequent power-ups.
+If for some reason you need to change WiFi credentials (e.g. because the original
+network is not available anymore, after boot-up simply press and hold the button on
+the back of the device for more than 3 seconds, and the 'dekatron' WiFi access point
+will show up again.
+
 If you use a webbrowser to connect to the IP, you can configure the SNMP credentials.
 Note that you will probably need to change the IP address if your switch, but often the
 default community and OIDs will work to use the information of the first network port.
