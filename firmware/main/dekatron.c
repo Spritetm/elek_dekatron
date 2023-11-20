@@ -1,5 +1,7 @@
 #include "dekatron.h"
 #include <stdio.h>
+#include <stdint.h>
+#include <stdatomic.h>
 #include "driver/ledc.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -16,14 +18,10 @@
 #include <string.h>
 #include "esp_timer.h"
 #include "driver/gpio.h"
+#include "io.h"
 
 static const char *TAG="dekatron";
 
-#define IO_BOOST 20
-#define IO_G1 7
-#define IO_G2 8
-#define IO_POSDET 6
-#define IO_ADC_HV ADC_CHANNEL_2
 
 /*
 For Fancy Animations (tm):
@@ -48,7 +46,12 @@ static int fixed_target=1;
 static int delay_per_cathode_us[30]={0};
 static char g1_for[30];
 static char g2_for[30];
-
+static int rotation=0;
+static int posdet_hit[30]={0};
+static int posdet_hit_total=0;
+static int posdet_prev=0;
+static int curr_pwm=0;
+atomic_int rot_corr=0;
 
 typedef struct {
 	char c;
@@ -73,7 +76,16 @@ static const font_ent_t font[]={
 
 static bool IRAM_ATTR timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data) {
 	int delay;
-	if (gpio_get_level(IO_POSDET)) curr_cathode=0;
+	if (!gpio_get_level(IO_POSDET)) {
+		if (!posdet_prev) {
+			posdet_hit[curr_cathode]++;
+			posdet_hit_total++;
+		}
+		posdet_prev=1;
+	} else {
+		posdet_prev=0;
+	}
+	curr_cathode+=atomic_exchange(&rot_corr, 0);
 	if (fixed_target==NO_FIXED_TARGET) {
 		//Simply walk through the electrodes, lighting them up for the specified time
 		curr_cathode++;
@@ -171,6 +183,7 @@ static void deka_power_task(void *arg) {
 	//output voltage and vice versa.
 	int tgt=480;	//equivalent of 400V
 	int warned=0;
+	int posdet_fix_tmr=0;
 	while(1) {
 		int adc_raw, voltage;
 		ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, IO_ADC_HV, &adc_raw));
@@ -194,7 +207,29 @@ static void deka_power_task(void *arg) {
 		//Set the duty cycle and wait.
 		ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty));
 		ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0));
+		curr_pwm=duty;
 		vTaskDelay(pdMS_TO_TICKS(50));
+
+
+		posdet_fix_tmr++;
+		if (posdet_fix_tmr>30) {
+			posdet_fix_tmr=0;
+			int max_hits=0;
+			int max_hit_pos=0;
+			for (int i=0; i<30; i++) {
+				int j=posdet_hit[i];
+				posdet_hit[i]=0;
+				if (j>max_hits) {
+					max_hits=j;
+					max_hit_pos=0;
+				}
+			}
+			if (max_hits>5) {
+				int c=rotation-max_hit_pos;
+				if (c<0) c+=30;
+				atomic_fetch_add(&rot_corr, c);
+			}
+		}
 	}
 }
 
@@ -229,16 +264,19 @@ void deka_anim_task() {
 	unsigned int frame=0;
 	uint8_t fb[30];
 	while(1) {
-		//wait for timer to expire
-		ulTaskNotifyTakeIndexed(0, pdTRUE, portMAX_DELAY);
-		//see if we need to / can switch to a new animation
-		int64_t time_ran_ms=(esp_timer_get_time()-anim_start)/1000;
-		if (time_ran_ms>=cur_anim.duration_ms) {
-			if (xQueueReceive(deka_cmd_queue, &cur_anim, 0)) {
-				esp_timer_restart(timerhandle, cur_anim.speed);
-				anim_start=esp_timer_get_time();
+		uint32_t timerexpired=0;
+		do {
+			//wait for timer to expire
+			timerexpired=ulTaskNotifyTakeIndexed(0, pdTRUE, pdMS_TO_TICKS(200));
+			//see if we need to / can switch to a new animation
+			int64_t time_ran_ms=(esp_timer_get_time()-anim_start)/1000;
+			if (time_ran_ms>=cur_anim.duration_ms) {
+				if (xQueueReceive(deka_cmd_queue, &cur_anim, 0)) {
+					esp_timer_restart(timerhandle, cur_anim.speed);
+					anim_start=esp_timer_get_time();
+				}
 			}
-		}
+		} while (!timerexpired);
 		//render a frame of the animation
 		if (cur_anim.type==DEKA_ANIM_TYPE_SPIN) {
 			if (cur_anim.subtype) fixed_target--; else fixed_target++;
@@ -276,6 +314,18 @@ void deka_queue_anim(int type, int subtype, int speed_us, int duration_ms) {
 	xQueueSend(deka_cmd_queue, &cmd, portMAX_DELAY);
 }
 
+void deka_set_rotation(int r) {
+	rotation=r;
+}
+
+int deka_get_pwm() {
+	return curr_pwm;
+}
+
+int deka_get_posdet_ct() {
+	return posdet_hit_total;
+}
+
 void deka_init() {
 	deka_cmd_queue=xQueueCreate(16, sizeof(deka_cmd_t));
 	ledc_init();
@@ -285,7 +335,11 @@ void deka_init() {
 		.mode=GPIO_MODE_OUTPUT
 	};
 	gpio_config(&cfg);
-	gpio_reset_pin(IO_POSDET);
+	gpio_config_t cfg_in={
+		.pin_bit_mask=(1<<IO_POSDET),
+		.mode=GPIO_MODE_INPUT
+	};
+	gpio_config(&cfg_in);
 
 	adc_oneshot_unit_init_cfg_t init_config1 = {
 		.unit_id = ADC_UNIT_1,
@@ -300,7 +354,7 @@ void deka_init() {
 
 	adc_cali_curve_fitting_config_t cali_config = {
 		.unit_id = ADC_UNIT_1,
-		.chan = IO_ADC_HV,
+//		.chan = IO_ADC_HV,
 		.atten = ADC_ATTEN_DB_0,
 		.bitwidth = ADC_BITWIDTH_DEFAULT,
 	};
@@ -332,6 +386,10 @@ void deka_init() {
 	ESP_ERROR_CHECK(gptimer_enable(gptimer));
 	ESP_ERROR_CHECK(gptimer_start(gptimer));
 	
-	xTaskCreate(deka_power_task, "deka_pwr", 4096, NULL, 5, NULL);
 	xTaskCreate(deka_anim_task, "deka_anim", 4096, NULL, 5, &deka_anim_task_handle);
-};
+}
+
+
+void deka_start() {
+	xTaskCreate(deka_power_task, "deka_pwr", 4096, NULL, 5, NULL);
+}

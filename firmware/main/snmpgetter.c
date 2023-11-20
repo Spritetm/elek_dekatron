@@ -79,10 +79,11 @@ static void snmpgetter_task(void *arg) {
 	snmpgetter_bw_t bw={0};
 	int64_t in_last=0, out_last=0, ts_last=0;
 	while(!req_stop) {
+		int64_t ts_at_req=esp_timer_get_time();
 		int64_t in_bytes=req_oid(req_in, req_in_len);
 		int64_t out_bytes=req_oid(req_out, req_out_len);
 		if (in_bytes!=-1 && out_bytes!=-1) {
-			int64_t time_ms=(esp_timer_get_time()-ts_last)/1000;
+			int64_t time_ms=(ts_at_req-ts_last)/1000;
 			int64_t diff_in=in_bytes-in_last;
 			int64_t diff_out=out_bytes-out_last;
 			//Fix rollover. Note that this assumes a 32-bit response from in_bytes/out_bytes. Given we
@@ -92,7 +93,7 @@ static void snmpgetter_task(void *arg) {
 			bw.bps_in=(diff_in*1000ULL)/time_ms;
 			bw.bps_out=(diff_out*1000ULL)/time_ms;
 			if (ts_last!=0) xQueueSend(dataq, &bw, portMAX_DELAY);
-			ts_last=esp_timer_get_time();
+			ts_last=ts_at_req;
 			in_last=in_bytes;
 			out_last=out_bytes;
 		}
@@ -103,8 +104,8 @@ static void snmpgetter_task(void *arg) {
 	vTaskDelete(NULL);
 }
 
-void snmpgetter_get_bw(snmpgetter_bw_t *bw) {
-	xQueueReceive(dataq, bw, portMAX_DELAY);
+int snmpgetter_get_bw(snmpgetter_bw_t *bw, int timeout) {
+	return xQueueReceive(dataq, bw, timeout);
 }
 
 static int gen_pdu_packet_for(const char *comstr, const char *oid, char *pkt) {
@@ -168,7 +169,7 @@ int snmpgetter_start(const char *host, int port, char *comstr, char *oid_in, cha
 	req_in_len=gen_pdu_packet_for(comstr, oid_in, req_in);
 	req_out_len=gen_pdu_packet_for(comstr, oid_out, req_out);
 	
-	if (!dataq) dataq=xQueueCreate(2, sizeof(snmpgetter_bw_t));
+	if (!dataq) dataq=xQueueCreate(1, sizeof(snmpgetter_bw_t));
 	xTaskCreate(snmpgetter_task, "snmpget", 8192, NULL, 5, NULL);
 	return 1;
 }

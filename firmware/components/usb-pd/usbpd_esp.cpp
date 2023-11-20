@@ -1,3 +1,7 @@
+//Simple front-end interface for 'usb-pd' on Espressif devices to simply get a certain voltage and
+//current capability out of an USB-PD-compliant power supply.
+
+
 #include <stdlib.h>
 #include "usbpd_esp.h"
 #include "esp_log.h"
@@ -6,6 +10,7 @@
 #include "policy_engine.h"
 #include "esp_timer.h"
 #include "esp_check.h"
+#include "driver/gpio.h"
 
 extern "C" {
 
@@ -14,6 +19,7 @@ extern "C" {
 static i2c_port_t port;
 static FUSB302 *fusb;
 static PolicyEngine *pe;
+static usbpd_esp_cb_t callback;
 
 static bool fusb_rd(const uint8_t deviceAddr, const uint8_t registerAdd, const uint8_t size, uint8_t *buf) {
 	esp_err_t r=i2c_master_write_read_device(port, deviceAddr>>1, &registerAdd, 1, buf, size, pdMS_TO_TICKS(100));
@@ -22,12 +28,21 @@ static bool fusb_rd(const uint8_t deviceAddr, const uint8_t registerAdd, const u
 }
 
 static bool fusb_wr(const uint8_t deviceAddr, const uint8_t registerAdd, const uint8_t size, uint8_t *buf) {
-	ESP_LOGI(TAG, "Writing %d bytes to addr 0x%2X", size, registerAdd);
+//	ESP_LOGI(TAG, "Writing %d bytes to addr 0x%02X", size, registerAdd);
+/*
+	for (int i=0; i<size; i++) {
+		printf("%02X ", buf[i]);
+	}
+	printf("\n");
+*/
 	i2c_cmd_handle_t h=i2c_cmd_link_create();
 	ESP_ERROR_CHECK(i2c_master_start(h));
-	ESP_ERROR_CHECK(i2c_master_write_byte(h, deviceAddr, true));
+	ESP_ERROR_CHECK(i2c_master_write_byte(h, deviceAddr|I2C_MASTER_WRITE, true));
 	ESP_ERROR_CHECK(i2c_master_write_byte(h, registerAdd, true));
-	ESP_ERROR_CHECK(i2c_master_write(h, buf, size, true));
+	for (int i=0; i<size; i++) {
+		ESP_ERROR_CHECK(i2c_master_write_byte(h, buf[i], true));
+	}
+//	ESP_ERROR_CHECK(i2c_master_write(h, buf, size, true));
 	ESP_ERROR_CHECK(i2c_master_stop(h));
 	esp_err_t r=i2c_master_cmd_begin(port, h, pdMS_TO_TICKS(10));
 	i2c_cmd_link_delete(h);
@@ -47,10 +62,17 @@ static uint32_t pd_gettimestamp() { //in ms
 
 static void usbpd_task(void *arg) {
 	ESP_LOGI(TAG, "task running");
+	gpio_config_t cfg={};
+	cfg.pin_bit_mask=(1<<3);
+	cfg.mode=GPIO_MODE_INPUT;
+	gpio_config(&cfg);
+
+	pe->IRQOccured();
 	while(1) {
-		pe->IRQOccured();
 		while(pe->thread()) ;
-		vTaskDelay(pdMS_TO_TICKS(5));
+		while (gpio_get_level((gpio_num_t)3)) vTaskDelay(pdMS_TO_TICKS(2));
+//		printf("IRQ!\n");
+		pe->IRQOccured();
 	}
 }
 
@@ -71,6 +93,7 @@ bool pdbs_dpm_evaluate_capability(const pd_msg *capabilities, pd_msg *request) {
 	int bestIndexVoltage = 0;
 	int bestIndexCurrent = 0;
 	bool bestIsPPS = false;
+	int type=USBPD_ESP_CB_INITIAL;
 	for (uint8_t i = 0; i < numobj; i++) {
 		/* If we have a fixed PDO, its V equals our desired V, and its I is
 		 * at least our desired I */
@@ -86,8 +109,9 @@ bool pdbs_dpm_evaluate_capability(const pd_msg *capabilities, pd_msg *request) {
 					capabilities->obj[i]);            // current in 10mA units
 			printf("PD slot %d -> %d mV; %d mA\r\n", i, voltage_mv,
 					current_a_x100 * 10);
-			if (voltage_mv == 12000 || bestIndex == 0xFF) {
-				// Higher voltage and valid, select this instead
+			int want=callback(type, voltage_mv, current_a_x100 * 10);
+			if (want) {
+				// Proper voltage and valid, select this instead
 				bestIndex = i;
 				bestIndexVoltage = voltage_mv;
 				bestIndexCurrent = current_a_x100;
@@ -108,12 +132,14 @@ bool pdbs_dpm_evaluate_capability(const pd_msg *capabilities, pd_msg *request) {
 			// Using the current and tip resistance, calculate the ideal max voltage
 			// if this is range, then we will work with this voltage
 			// if this is not in range; then max_voltage can be safely selected
+/*
 			if (max_voltage > bestIndexVoltage || bestIndex == 0xFF) {
 				bestIndex = i;
 				bestIndexVoltage = max_voltage;
 				bestIndexCurrent = max_current;
 				bestIsPPS = true;
 			}
+*/
 		}
 	}
 
@@ -134,6 +160,7 @@ bool pdbs_dpm_evaluate_capability(const pd_msg *capabilities, pd_msg *request) {
 		}
 		// USB Data
 		request->obj[0] |= PD_RDO_USB_COMMS;
+		callback(USBPD_ESP_CB_CHOSEN, bestIndexVoltage, bestIndexCurrent*10);
 	} else {
 		/* Nothing matched (or no configuration), so get 5 V at low current */
 		request->hdr = PD_MSGTYPE_REQUEST | PD_NUMOBJ(1);
@@ -147,6 +174,7 @@ bool pdbs_dpm_evaluate_capability(const pd_msg *capabilities, pd_msg *request) {
 		}
 		// USB Data
 		request->obj[0] |= PD_RDO_USB_COMMS;
+		callback(USBPD_ESP_CB_CHOSEN, 5000, 500);
 	}
 	// Even if we didnt match, we return true as we would still like to handshake
 	// on 5V at the minimum
@@ -202,8 +230,9 @@ bool pds_dpm_epr_evaluate_capability(const epr_pd_msg *capabilities, pd_msg *req
 	return false;
 }
 
-esp_err_t usbpd_esp_init(i2c_port_t i2c_port) {
+esp_err_t usbpd_esp_init(i2c_port_t i2c_port, usbpd_esp_cb_t cb) {
 	port=i2c_port;
+	callback=cb;
 	fusb=new FUSB302(FUSB302B_ADDR, fusb_rd, fusb_wr, fusb_delay);
 	if (!fusb->fusb_read_id()) {
 		ESP_LOGE(TAG, "fusb_read_id failed!");

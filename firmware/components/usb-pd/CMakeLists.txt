@@ -6,4 +6,4 @@ idf_component_register(
 	PRIV_REQUIRES "driver" "freertos" "esp_timer"
 )
 
-target_compile_options(${COMPONENT_LIB} PRIVATE -DPD_DEBUG_OUTPUT)
+#target_compile_options(${COMPONENT_LIB} PRIVATE -DPD_DEBUG_OUTPUT)

@@ -11,7 +11,10 @@ function reqFields() {
 		for (var i=0; i<json.vars.length; i++) {
 			document.getElementById(json.vars[i].el).value=json.vars[i].val;
 		}
-		document.getElementById("log").textContent=json.log.substring(json.logendpos)+json.log.substring(0,json.logendpos);
+		stats="USB-PD negotiated "+json.usbpd_mv+"mV @ "+json.usbpd_ma+"mA\n";
+		stats+="Dekatron duty cycle: "+(512-json.deka_pwm)+"/512\n";
+		stats+="Dekatron position detect counter (should be >1): "+json.deka_posdet+"\n";
+		document.getElementById("stats").textContent=stats;
 	}
 	xhr.onerror = function() {
 		alert("Request failed");
@@ -30,7 +33,7 @@ function sendFields() {
 	};
 	xhr.open('POST', '/setfields');
 	var obj={};
-	var fields=["snmpip", "community", "oid_in", "oid_out"];
+	var fields=["snmpip", "community", "oid_in", "oid_out", "max_bw_bps", "rotation"];
 	for (var i=0; i<fields.length; i++) {
 		obj[fields[i]]=document.getElementById(fields[i]).value;
 	}
@@ -45,15 +48,19 @@ function sendFields() {
 <h2><a href="/wifi/">WiFi config</a></h2>
 
   <label for="snmpip">SNMP device IP or hostname:</label><br>
-  <input type="text" id="snmpip" name="snmpip" value="" maxlength="256"><br><br>
+  <input type="text" id="snmpip" name="snmpip" value="" maxlength="256"><br>
   <label for="community">SNMP community string:</label><br>
   <input type="text" id="community" name="community" value="" maxlength="256"><br><br>
   <label for="oid_in">OID for incoming octets:</label><br>
   <input type="text" id="oid_in" name="oid_in" value="" maxlength="255"><br>
   <label for="oid_out">OID for outgoing octets:</label><br>
   <input type="text" id="oid_out" name="oid_out" value="" maxlength="255"><br>
+  <label for="max_bw_bps">Max bandwidth (bytes per second)</label><br>
+  <input type="text" id="max_bw_bps" name="max_bw_bps" value="" maxlength="16"><br><br>
+  <label for="rotation">Rotation (0-29):</label><br>
+  <input type="number" id="rotation" name="rotation" value="0" min="0" max="29"><br><br>
   <input type="submit" value="Submit" onClick="sendFields()">
   <p>Note: device will restart after succesful submit.</p>
-
+  <pre id="stats"></pre>
 </body>
 </html>

@@ -15,7 +15,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
-#include "esp_ota_ops.h"
+#include "dekatron.h"
 
 #include "wifi_manager.h"
 #include "http_app.h"
@@ -27,10 +27,20 @@ extern const char root_html_start[] asm("_binary_root_html_start");
 extern const char root_html_end[] asm("_binary_root_html_end");
 
 //keep in sync with html
-static const char* fields[]={"snmpip", "community", "oid_in", "oid_out", NULL};
-static const char* defaults[]={"10.0.0.1", "public", ".1.3.6.1.2.1.2.2.1.10.1", ".1.3.6.1.2.1.2.2.1.16.1"};
+static const char* fields[]={"snmpip", "community", "oid_in", "oid_out", "max_bw_bps", "rotation", NULL};
+static const char* defaults[]={"10.0.0.1", "public", ".1.3.6.1.2.1.2.2.1.10.1", ".1.3.6.1.2.1.2.2.1.16.1", "1G", "0"};
 
 static nvs_handle_t nvs;
+
+
+//default to un-negotiated USB voltages
+static int usbpd_mv=5000;
+static int usbpd_ma=100;
+
+void webconfig_set_usbpd(int mv, int ma) {
+	usbpd_mv=mv;
+	usbpd_ma=ma;
+}
 
 static esp_err_t webconfig_get_handler(httpd_req_t *req) {
 	if(strcmp(req->uri, "/") == 0) {
@@ -54,6 +64,10 @@ static esp_err_t webconfig_get_handler(httpd_req_t *req) {
 			cJSON_AddItemToArray(vars, var);
 			i++;
 		}
+		cJSON_AddNumberToObject(root, "usbpd_mv", usbpd_mv);
+		cJSON_AddNumberToObject(root, "usbpd_ma", usbpd_ma);
+		cJSON_AddNumberToObject(root, "deka_pwm", deka_get_pwm());
+		cJSON_AddNumberToObject(root, "deka_posdet", deka_get_posdet_ct());
 		httpd_resp_set_status(req, "200 OK");
 		httpd_resp_set_type(req, "text/json");
 		const char *txt=cJSON_Print(root);
