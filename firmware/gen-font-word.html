@@ -1,0 +1,38 @@
+<html>
+<head>
+<title>Blerp</title>
+<script>
+
+var chbs=new Array();
+
+
+function start() {
+	var div=document.getElementById("chb");
+	for (var i=0; i<30; i++) {
+		var c = document.createElement("INPUT");
+		c.setAttribute("type", "checkbox");
+		c.addEventListener('change', (event) => {
+			var r=0;
+			for (var i=0; i<30; i++) {
+				if (chbs[i].checked) r=r|(1<<i);
+			}
+			document.getElementById("out").value="0x"+r.toString(16);
+		});
+		c.style.position="absolute";
+		var x=Math.sin((i/30)*2*Math.PI)*150+150;
+		var y=Math.cos((i/30)*2*Math.PI)*-150+250;
+		c.style.left=x+"px";
+		c.style.top=y+"px";
+		chbs[i]=c;
+		div.appendChild(chbs[i]);
+		document.getElementById("out").value="0x0";
+	}
+}
+</script>
+</head>
+<p>This is a stupid script to generate the words used as the 'font' for when the dekatron shows the IP. Click on checkboxes to light that cathode, copy-paste the hex number
+when satisfied.</p>
+<body onLoad="start()">
+<div id="chb"></div>
+<input type="text" id="out" value="">
+</body>

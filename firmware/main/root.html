@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>WebConfig</title>
+<script type="text/javascript">
+
+function reqFields() {
+	var xhr=new XMLHttpRequest();
+	xhr.onload=function() {
+		var json=JSON.parse(xhr.responseText);
+		for (var i=0; i<json.vars.length; i++) {
+			document.getElementById(json.vars[i].el).value=json.vars[i].val;
+		}
+		document.getElementById("log").textContent=json.log.substring(json.logendpos)+json.log.substring(0,json.logendpos);
+	}
+	xhr.onerror = function() {
+		alert("Request failed");
+	};
+	xhr.open('GET', '/getfields');
+	xhr.send();
+}
+
+function sendFields() {
+	var xhr=new XMLHttpRequest();
+	xhr.onload=function() {
+		reqFields();
+	}
+	xhr.onerror = function() {
+		alert("Request failed");
+	};
+	xhr.open('POST', '/setfields');
+	var obj={};
+	var fields=["snmpip", "community", "oid_in", "oid_out"];
+	for (var i=0; i<fields.length; i++) {
+		obj[fields[i]]=document.getElementById(fields[i]).value;
+	}
+	xhr.send(JSON.stringify(obj));
+	return false;
+}
+
+</script>
+</head>
+<body onload="reqFields()">
+
+<h2><a href="/wifi/">WiFi config</a></h2>
+
+  <label for="snmpip">SNMP device IP or hostname:</label><br>
+  <input type="text" id="snmpip" name="snmpip" value="" maxlength="256"><br><br>
+  <label for="community">SNMP community string:</label><br>
+  <input type="text" id="community" name="community" value="" maxlength="256"><br><br>
+  <label for="oid_in">OID for incoming octets:</label><br>
+  <input type="text" id="oid_in" name="oid_in" value="" maxlength="255"><br>
+  <label for="oid_out">OID for outgoing octets:</label><br>
+  <input type="text" id="oid_out" name="oid_out" value="" maxlength="255"><br>
+  <input type="submit" value="Submit" onClick="sendFields()">
+  <p>Note: device will restart after succesful submit.</p>
+
+</body>
+</html>

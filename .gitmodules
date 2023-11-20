@@ -1,3 +1,6 @@
 [submodule "firmware/components/usb-pd/usb-pd"]
 	path = firmware/components/usb-pd/usb-pd
 	url = https://github.com/Ralim/usb-pd.git
+[submodule "firmware/components/esp32-wifi-manager"]
+	path = firmware/components/esp32-wifi-manager
+	url = https://github.com/tonyp7/esp32-wifi-manager.git
